@@ -8,7 +8,7 @@ respecting adult-only rules, and tracking what's overdue.
 Built to run on a home server (e.g. a Synology NAS) and be opened from any family device on
 the same network. State is shared: everyone sees and edits the same board.
 
-![tabs: This week · Chores · Rooms · Team](public/index.html)
+![ChoreBoard — the weekly assignment grid, with per-person time-budget meters and color-coded chore cards](docs/screenshot.png)
 
 ## What it does
 

@@ -1,0 +1,3 @@
+# Normalize line endings: LF in the repo and working tree on every platform.
+# Keeps Docker/Linux and Windows checkouts byte-identical and silences CRLF warnings.
+* text=auto eol=lf

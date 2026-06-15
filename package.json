@@ -1,0 +1,13 @@
+{
+  "name": "chore-board",
+  "version": "2.0.0",
+  "description": "Household chore scheduler with a smart, time-budgeted weekly assignment engine. Self-hosted for family devices on the local network.",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node test/scheduler.test.js"
+  }
+}

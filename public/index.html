@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chore Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand"><span class="mark">Chore<b>Board</b></span><span class="sub">household command center</span></div>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-view="week">This week</button>
+      <button class="tab" data-view="chores">Chores</button>
+      <button class="tab" data-view="rooms">Rooms</button>
+      <button class="tab" data-view="team">Team</button>
+    </nav>
+    <span class="spacer"></span>
+    <span class="sync" id="syncState" title="Shared state status"></span>
+    <button class="btn ghost sm danger" id="resetBtn" title="Erase everything and reload sample data">Reset</button>
+  </div>
+
+  <!-- WEEK -->
+  <section class="view active" id="view-week">
+    <div class="viewhead">
+      <div><h2 id="weekTitle">This week</h2><div class="meta" id="weekMeta">Refresh to build this week’s slate.</div></div>
+      <div class="spacer"></div>
+      <div class="controls">
+        <div class="field"><label for="weekStart">Week starts</label><input type="date" id="weekStart"></div>
+        <div class="field narrow"><label for="graceDays">Grace (days)</label><input type="number" id="graceDays" min="1" value="3"></div>
+        <div class="field narrow"><label for="escalateAfter">Escalate (cycles)</label><input type="number" id="escalateAfter" min="1" value="2"></div>
+        <button class="btn primary" id="generateBtn">Refresh week</button>
+        <button class="btn" id="printBtn">Print</button>
+      </div>
+    </div>
+    <div id="weekBody"><div class="loading">Loading…</div></div>
+  </section>
+
+  <!-- CHORES -->
+  <section class="view" id="view-chores">
+    <div class="viewhead"><div><h2>Chores</h2><div class="meta">Edits save instantly. Refresh the week to apply. Matrix chores are managed in Rooms.</div></div><div class="spacer"></div><div class="controls"><button class="btn primary" id="addChore">+ Add chore</button></div></div>
+    <div class="panel"><div class="tblscroll"><table class="tbl" id="choreTbl">
+      <thead><tr>
+        <th>Chore</th><th class="col-c">Priority</th><th class="col-c">Minutes</th>
+        <th class="col-c">Every</th><th class="col-c">Adult&nbsp;only</th><th class="col-c">Assign&nbsp;to</th>
+        <th class="col-c">Last&nbsp;done</th><th class="col-c">On</th><th></th>
+      </tr></thead><tbody id="choreRows"></tbody>
+    </table></div>
+      <div class="panel-foot"><span class="tag">Priority 5 = critical · 1 = whenever.</span><span class="tag">“Assign to” locks a chore to one person; “Auto” lets the scheduler balance it.</span></div>
+    </div>
+    <p class="hint"><b>Cadence</b> drives when a chore’s obligation opens. Once open, the holder has the grace window to check it off; miss it and it goes <b>delinquent</b> — pinned to the same person at the top of their day. After the set number of delinquency cycles, an auto-assigned chore <b>escalates to an adult</b>. Checking it off stamps <b>Last done</b> and starts the next cycle.</p>
+  </section>
+
+  <!-- ROOMS / MATRIX -->
+  <section class="view" id="view-rooms">
+    <div class="viewhead"><div><h2>Rooms &amp; matrix</h2><div class="meta">Cross every room with every compatible chore type. Duration scales with room size.</div></div></div>
+    <div class="panel">
+      <div class="panel-foot" style="border-top:none;border-bottom:1px solid var(--line-2)"><span class="tag" style="color:var(--ink);font-weight:700">Rooms</span><span class="tag">Size scales task time: small ×0.5 · medium ×1 · large ×1.3 · huge ×2.</span></div>
+      <div class="rooms" id="roomList"></div>
+      <div class="panel-foot"><button class="btn sm" id="addRoom">+ Add room</button></div>
+    </div>
+    <div class="panel">
+      <div class="tblscroll"><table class="tbl" id="matrixTbl">
+        <thead><tr><th>Matrix chore type</th><th class="col-c">Minutes</th><th class="col-c">Priority</th><th class="col-c">Every</th><th class="col-c">Adult&nbsp;only</th><th class="col-c">Assign&nbsp;to</th><th></th></tr></thead>
+        <tbody id="matrixRows"></tbody>
+      </table></div>
+      <div class="panel-foot"><button class="btn sm" id="addType">+ Add chore type</button></div>
+    </div>
+    <div class="panel">
+      <div class="panel-foot" style="border-top:none;border-bottom:1px solid var(--line-2)"><span class="tag" style="color:var(--ink);font-weight:700">Compatibility</span><span class="tag">Uncheck a cell to skip that combination (e.g. no mopping a carpeted room).</span></div>
+      <div class="tblscroll" id="compatWrap"></div>
+      <div class="panel-foot">
+        <span class="spacer"></span>
+        <span class="tag" id="matrixCount"></span>
+        <button class="btn primary" id="applyMatrix">Apply matrix</button>
+      </div>
+    </div>
+    <p class="hint"><b>Apply matrix</b> creates one chore per enabled room × type cell (e.g. <b>Mop — Kitchen</b>), each inheriting the type’s characteristics with minutes scaled by room size. It preserves the completion history and per-room assignee of chores that already exist, adds new combinations, and removes chores for cells you’ve unchecked or rooms/types you’ve deleted.</p>
+  </section>
+
+  <!-- TEAM -->
+  <section class="view" id="view-team">
+    <div class="viewhead"><div><h2>Team</h2><div class="meta">Daily time budgets per person. The scheduler packs each day up to these limits.</div></div><div class="spacer"></div><div class="controls"><button class="btn primary" id="addPerson">+ Add person</button></div></div>
+    <div class="panel"><div class="tblscroll"><table class="tbl" id="teamTbl">
+      <thead><tr><th>Name</th><th>Color</th><th class="col-c">Adult</th><th class="col-c">Weekday&nbsp;min</th><th class="col-c">Weekend&nbsp;min</th><th class="col-c">Max&nbsp;task&nbsp;min</th><th class="col-c">Active</th><th></th></tr></thead>
+      <tbody id="teamRows"></tbody>
+    </table></div></div>
+    <p class="hint"><b>Max task min</b> caps how long any single auto-assigned task can be for that person — leave 0 for no cap. A deliberate “Assign to”, a delinquent carry-over, or an escalation ignores this cap and the daily budget, because those are must-dos (the meter turns red to show it).</p>
+  </section>
+</div>
+
+<div class="toast" id="toast"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

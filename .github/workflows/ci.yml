@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ['18', '20', '22']   # the range README claims support for
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm test               # no install step: the project has no dependencies
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t chore-board:ci .
+      - name: Container serves the board and persists state
+        run: |
+          docker run -d --name cb -p 8080:8080 -v "$PWD/ci-data:/data" chore-board:ci
+          for i in $(seq 1 30); do curl -fsS localhost:8080/api/health && break || sleep 1; done
+          curl -fsS -X PUT localhost:8080/api/state \
+            -H 'Content-Type: application/json' -d '{"rev":1,"chores":[]}' > /dev/null
+          test "$(curl -fsS localhost:8080/api/state | tr -d ' \n')" = '{"rev":1,"chores":[]}'
+          docker rm -f cb

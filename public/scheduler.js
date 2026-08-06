@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Estrella Tyree
+//
 // scheduler.js — pure, side-effect-free scheduling logic.
 // Imported by the browser app (app.js) and by the test suite. No DOM, no I/O.
 

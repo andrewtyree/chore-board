@@ -31,7 +31,7 @@ can read end-to-end, host on a NAS, and modify.
   room sizes, and compatibilities are all data, edited in the app, not constants in code.
 - **Self-hostable and dependency-light.** Runs anywhere Node runs; no build, no cloud.
 
-## Current capabilities (v2)
+## Current capabilities (v1.0)
 
 - Weekly time-budgeted assignment grid with per-person capacity meters and an overflow report.
 - Obligation lifecycle: cadence-opened obligations, a grace window, delinquency, and escalation to an
@@ -39,7 +39,8 @@ can read end-to-end, host on a NAS, and modify.
 - Cadence in days/weeks/months/years with calendar-correct math.
 - Per-chore lock-to-a-person, or auto-balance.
 - Room × chore matrix with size-scaled durations and a compatibility grid for incompatible cells.
-- Shared state across devices via a small JSON API, with a per-device offline fallback.
+- Shared state across devices via a small JSON API, with a per-device offline fallback that
+  rejoins the server automatically when it comes back.
 
 ## Open design decisions & roadmap
 

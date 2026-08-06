@@ -1,4 +1,6 @@
 node_modules/
-data/*.json
+data/*
+!data/.gitkeep
+ci-data/
 *.log
 .DS_Store

@@ -2,6 +2,46 @@
 
 Working notes for Claude Code on this repo. Read this before changing scheduling behavior.
 
+## Where we are — shipping v1.0 (last updated 2026-08-06)
+
+Working through a punch list to make the repo releasable. The engine and UI were already
+feature-complete; this is packaging and data safety, not features.
+
+**Done — P0 (data loss) and P1 (release basics).** See `CHANGELOG.md` for the full list. In short:
+atomic state writes with a `.bak` generation, corrupt-vs-empty handling (503, never seed over a
+damaged file), automatic reconnect out of offline mode, AGPL-3.0-or-later licensing with the §13
+Source link, version renumbered 2.0.0 → 1.0.0, CI on Node 18/20/22 + a Docker smoke test, and
+`test/server.test.js`. The rules those introduced are written up under "Data safety" below — treat
+them as part of the architecture contract.
+
+**Next — P2: the self-hosting promise has two holes.**
+1. `public/index.html:7-9` pulls Bricolage Grotesque and Inter from `fonts.googleapis.com`. On a NAS
+   with no internet, or an offline family device, the typography silently falls back — and it's an
+   external runtime dependency in a project whose pitch is "no dependencies, runs anywhere". Fix:
+   vendor the woff2 files into `public/fonts/` with local `@font-face` (still no build step), or drop
+   to a system font stack. If vendoring, add `*.woff2 binary` to `.gitattributes` — the blanket
+   `* text=auto eol=lf` rule there should auto-detect binary, but be explicit.
+2. No web app manifest or icons, even though README step 4 tells people to add the board to their
+   home screen and `server.js:26` already has the `.webmanifest` MIME type wired up. Needs
+   `public/manifest.webmanifest`, 192/512 icons, `<link rel="manifest">` and `theme-color`. iOS
+   ignores manifest icons for home-screen bookmarks, so it also needs `<link rel="apple-touch-icon">`.
+
+**Then — P3: dangling references on delete.** Deleting a person (`app.js:331`) only filters
+`S.people`; chores keep `assignee`/`holder` pointing at the ghost id. `rollForward` then sets
+`holder = assignee` unconditionally for explicit assignees, and `assignInstances` drops the chore to
+unassigned with "Assigned person is inactive — reassign in Chores" — visible, but the wrong wording
+and no bulk fix. Same shape for rooms (`app.js:256`) and matrix types (`app.js:278`), which leave
+stale `${typeId}:${roomId}` keys in `matrixExclude`. Cleaning references on delete is the fix; the
+engine should stay tolerant of ghosts regardless.
+
+**Explicitly deferred past v1.0:** everything in `TODO.md` (per-entity sync). README documents
+last-write-wins as a known limit. If box-checking actually hurts in real use, TODO.md's Slice 1
+alone is the fix.
+
+**Known gap:** the client reconnect path (`app.js` → `reconnect()`) is covered on the server side
+and parses clean, but has not been exercised end-to-end in a browser. Worth a two-tab manual pass
+before tagging v1.0.0.
+
 ## What this is
 
 A self-hosted family chore scheduler. Vanilla ES modules + a zero-dependency Node server. No
@@ -18,6 +58,7 @@ not to — the value here is that it runs anywhere Node runs and is trivial to h
    It should contain no scheduling rules — only orchestration and presentation.
 3. **`server.js` is a dumb store.** It serves `public/` statically and persists one JSON blob at
    `/api/state` (GET/PUT). It has no domain knowledge and shouldn't gain any. Keep it dependency-free.
+   It is *not* careless, though — see "Data safety" below; those rules are load-bearing.
 4. **One persisted document.** The entire board is the object `S` in `app.js`, saved whole. Every
    mutation goes through `save()` (which bumps `S.rev` and PUTs/falls back to localStorage).
 
@@ -68,6 +109,19 @@ not to — the value here is that it runs anywhere Node runs and is trivial to h
 - Escalation: child + auto + `cycles ≥ escalateAfter` → adult; forced assignee never escalates.
 
 `test/scheduler.test.js` covers all of the above. **Run `npm test` after any engine change.**
+
+## Data safety (don't regress these — they're covered by `test/server.test.js`)
+
+- **Writes are atomic and serialized.** `writeState` queues through a promise chain so overlapping
+  PUTs can't interleave, and `writeNow` does tmp → copy old to `.bak` → `rename`. Never `writeFile`
+  straight onto `DATA_FILE`; a torn write there is a destroyed family board.
+- **Corrupt ≠ empty.** `readState` returns `{ok:false}` when a state file exists but won't parse
+  (after trying `.bak`), and `GET /api/state` answers **503**. The client must *never* seed defaults
+  in response to that — seeding over a truncated file is how you silently lose everything. "No file
+  at all" is the only case that means "seed me".
+- **Degraded sync must be recoverable.** `syncMode` may drop to `local`/`error`, but `pull()` calls
+  `reconnect()` on every tick so a blip can't strand a device on `localStorage` for the session.
+  Reconciliation is whole-document by `rev`, matching the rest of the app.
 
 ## Conventions
 

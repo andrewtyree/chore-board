@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Estrella Tyree
+//
 // app.js — UI, state, storage, rendering. Imports the pure engine from scheduler.js.
 import {
   UNITS, DOW, SIZE_FACTORS, parseISO, toISO, addDays, isWeekend, mondayOf,
@@ -6,21 +9,28 @@ import {
 
 /* ===================== STORAGE (shared via server, local fallback) ===================== */
 const LS_KEY = 'choreboard.state';
+const CAN_SHARE = location.protocol !== 'file:'; // opened as a file -> there is no server to reach, ever
 let syncMode = 'shared'; // 'shared' | 'local' | 'error'
 function setSync(mode, label) {
   syncMode = mode; const el = document.getElementById('syncState');
   el.className = 'sync ' + mode;
   el.textContent = label || (mode === 'shared' ? 'Shared' : mode === 'local' ? 'Local only' : 'Offline');
 }
-async function apiGet() { const r = await fetch('/api/state', { cache: 'no-store' }); if (!r.ok) throw new Error('GET ' + r.status); return r.json(); }
-async function apiPut(state) { const r = await fetch('/api/state', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state) }); if (!r.ok) throw new Error('PUT ' + r.status); return r.json(); }
+function httpError(verb, r) { const e = new Error(`${verb} ${r.status}`); e.status = r.status; return e; }
+async function apiGet() { const r = await fetch('/api/state', { cache: 'no-store' }); if (!r.ok) throw httpError('GET', r); return r.json(); }
+async function apiPut(state) { const r = await fetch('/api/state', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state) }); if (!r.ok) throw httpError('PUT', r); return r.json(); }
 
 async function loadState() {
-  try { const s = await apiGet(); setSync('shared'); return s && Object.keys(s).length ? s : null; }
-  catch {
-    setSync('local', 'Local only');               // no server (opened as a file, or NAS unreachable)
-    try { const raw = localStorage.getItem(LS_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; }
-  }
+  if (CAN_SHARE) {
+    try { const s = await apiGet(); setSync('shared'); return s && Object.keys(s).length ? s : null; }
+    catch (e) {
+      // 503 = the server holds a state file it can't parse. Stay local so we never seed over it;
+      // reconnect() keeps probing and picks the board back up once it's restored.
+      if (e.status === 503) setSync('error', 'Server data unreadable');
+      else setSync('local', 'Local only');       // NAS unreachable
+    }
+  } else setSync('local', 'Local only');
+  try { const raw = localStorage.getItem(LS_KEY); return raw ? JSON.parse(raw) : null; } catch { return null; }
 }
 async function persist() {
   S.rev = (S.rev || 0) + 1;
@@ -361,14 +371,37 @@ function syncBudgetInputs() {
 }
 
 /* ===================== LIVE SYNC (poll for other devices) ===================== */
+// The server went away mid-session (or was down at load) and we've been saving to localStorage.
+// Rejoin when it comes back, reconciling by `rev` — the same whole-document last-write-wins rule
+// the app uses everywhere else. Offline edits on two devices still can't merge; see TODO.md.
+async function reconnect() {
+  try { const h = await fetch('/api/health', { cache: 'no-store' }); if (!h.ok) return; }
+  catch { return; }                                  // still down; the next tick tries again
+  try {
+    const remote = await apiGet();
+    if (remote && Object.keys(remote).length && (remote.rev || 0) > (S.rev || 0)) {
+      S = remote; normalize(); syncBudgetInputs(); setSync('shared'); renderActive();
+      toast('Back online — loaded the newer board from the server');
+    } else {
+      await apiPut(S); setSync('shared');            // our copy is newer; push the offline edits up
+      toast('Back online — your offline changes were saved');
+    }
+  } catch (e) {
+    if (e.status === 503) setSync('error', 'Server data unreadable');
+    else setSync('local', 'Local only');
+  }
+}
 async function pull() {
-  if (syncMode !== 'shared') return;
+  if (!CAN_SHARE) return;
   const ae = document.activeElement;
   if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return; // don't clobber an in-progress edit
+  if (syncMode !== 'shared') return reconnect();
   try {
     const remote = await apiGet();
     if (remote && (remote.rev || 0) > (S.rev || 0)) { S = remote; normalize(); syncBudgetInputs(); renderActive(); }
-  } catch { /* transient; ignore */ }
+  } catch (e) {
+    if (e.status === 503) setSync('error', 'Server data unreadable'); // don't keep PUTting at a broken store
+  }
 }
 setInterval(pull, 15000);
 window.addEventListener('focus', pull);

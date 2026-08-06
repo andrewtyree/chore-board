@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// Copyright (C) 2026 Estrella Tyree
+//
 // server.js — zero-dependency static file server + shared-state JSON API.
 // Node 18+. Run: `node server.js`  (PORT and DATA_FILE configurable via env).
 //
@@ -6,7 +9,7 @@
 // device its own private copy. This server keeps one JSON file as the source of truth.
 
 import http from 'node:http';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, rename, copyFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,13 +26,49 @@ const MIME = {
   '.webmanifest': 'application/manifest+json',
 };
 
-async function readState() {
-  try { return JSON.parse(await readFile(DATA_FILE, 'utf8')); }
-  catch { return null; } // missing/empty -> client seeds defaults and PUTs them back
+const BAK_FILE = DATA_FILE + '.bak';
+const TMP_FILE = DATA_FILE + '.tmp';
+
+// Reads one candidate file. `{missing:true}` for absent/blank; throws if it exists but won't parse.
+async function readOne(file) {
+  let raw;
+  try { raw = await readFile(file, 'utf8'); }
+  catch (e) { if (e.code === 'ENOENT') return { missing: true }; throw e; }
+  if (!raw.trim()) return { missing: true };
+  return { state: JSON.parse(raw) };
 }
-async function writeState(state) {
+
+// -> { ok:true, state }   state === null means "no file yet", so the client should seed defaults.
+// -> { ok:false }         a file exists but is unreadable. The client MUST NOT seed over it, or a
+//                         truncated write would silently become a brand-new sample board.
+async function readState() {
+  let corrupt = false;
+  for (const file of [DATA_FILE, BAK_FILE]) {
+    try {
+      const r = await readOne(file);
+      if (r.missing) continue;
+      if (file === BAK_FILE) console.error(`[state] recovered from ${BAK_FILE} — ${DATA_FILE} is missing or corrupt`);
+      return { ok: true, state: r.state };
+    } catch (e) {
+      console.error(`[state] ${file} is unreadable: ${e.message}`);
+      corrupt = true;
+    }
+  }
+  return corrupt ? { ok: false } : { ok: true, state: null };
+}
+
+// Serialize writes: two overlapping PUTs must not interleave on the same file.
+let writeQueue = Promise.resolve();
+function writeState(state) {
+  const next = writeQueue.then(() => writeNow(state), () => writeNow(state));
+  writeQueue = next.catch(() => {}); // a failed write must not poison the chain
+  return next;
+}
+async function writeNow(state) {
   await mkdir(path.dirname(DATA_FILE), { recursive: true });
-  await writeFile(DATA_FILE, JSON.stringify(state, null, 2));
+  await writeFile(TMP_FILE, JSON.stringify(state, null, 2));
+  if (existsSync(DATA_FILE)) await copyFile(DATA_FILE, BAK_FILE); // keep one generation back
+  await rename(TMP_FILE, DATA_FILE); // atomic within a filesystem: readers see the old or new file, never a partial one
 }
 function send(res, code, body, type = 'application/json; charset=utf-8') {
   res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store' });
@@ -61,7 +100,8 @@ const server = http.createServer(async (req, res) => {
     const { pathname } = new URL(req.url, 'http://x');
     if (pathname === '/api/state') {
       if (req.method === 'GET') {
-        const state = await readState();
+        const { ok, state } = await readState();
+        if (!ok) return send(res, 503, JSON.stringify({ error: 'state file unreadable', corrupt: true }));
         return send(res, 200, JSON.stringify(state ?? {}));
       }
       if (req.method === 'PUT' || req.method === 'POST') {
